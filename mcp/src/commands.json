@@ -1,6 +1,6 @@
 {
   "app": "0.9.2",
-  "saved": "2026-10-31T15:11:20.100Z",
+  "saved": "2026-11-01T01:01:41.134Z",
   "commands": [
     {
       "name": "align.auto",
@@ -3690,7 +3690,7 @@
     {
       "name": "scan.qa",
       "title": "Check the scan before modelling",
-      "description": "One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: \"circle\", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }) and notes, what looks wrong, plainly. Trap: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through. Changes nothing.",
+      "description": "One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: \"circle\", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), tessellation (span: the median triangle’s longest edge, mm; sparse: a CAD export with points only on edges and rims — densify it before fitting), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }) and notes, what looks wrong, plainly. Trap: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through. Changes nothing.",
       "input": {
         "type": "object",
         "properties": {

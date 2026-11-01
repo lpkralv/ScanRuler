@@ -3,7 +3,7 @@
 // none, the parts in the viewport — and the edited copy. The tools are of the two kinds the workspace has — the edits,
 // which change a copy of the scan until it is taken into use for every
 // workspace (Remove islands, Delete marked, Flip normals, Cut, Fill holes,
-// Smooth, Shrink / expand, Boolean, Shell), and those that leave the instrument as
+// Smooth, Shrink / expand, Boolean, Shell, Densify), and those that leave the instrument as
 // geometry for somebody else's: Reduce mesh, the scan reduced to a light mesh
 // to model over in CAD, held within a tolerance and measured to prove it, and
 // Trim to scan, a body cut to fit the scan's break, to print and glue in. Each tool is laid out like the
@@ -37,6 +37,7 @@ import { HolesTool } from './tools/HolesTool'
 import { SmoothTool } from './tools/SmoothTool'
 import { OffsetTool } from './tools/OffsetTool'
 import { ShellTool } from './tools/ShellTool'
+import { DensifyTool } from './tools/DensifyTool'
 import type { MeshFormat } from '../../../src/core/exportMesh'
 
 const TOOLS: { id: MeshTool; icon: ReactNode; label: string; title: string }[] = [
@@ -106,6 +107,12 @@ const TOOLS: { id: MeshTool; icon: ReactNode; label: string; title: string }[] =
     label: 'Shell/hollow',
     title: 'Hollow a closed part, leaving a wall of a thickness you set round a sealed cavity — or thicken an open surface into a solid',
   },
+  {
+    id: 'densify',
+    icon: <MeshIcon name="densify" />,
+    label: 'Densify',
+    title: 'Split the triangles of an STL exported from CAD until no edge is longer than a length you set, so its faces have points to fit — the shape does not change',
+  },
 ]
 
 export function MeshPanel({
@@ -121,6 +128,7 @@ export function MeshPanel({
   onSmooth,
   onOffset,
   onShell,
+  onDensify,
   onBoolean,
   onTrim,
   onExportTrimmed,
@@ -141,6 +149,7 @@ export function MeshPanel({
   onSmooth: () => void
   onOffset: () => void
   onShell: (mode: 'hollow' | 'thicken') => void
+  onDensify: () => void
   onBoolean: () => void
   /** Cut the body in hand to the break marked on the part, and save the
    *  piece as an STL. */
@@ -176,7 +185,7 @@ export function MeshPanel({
             </p>
             <p>
               <b>Remove islands</b>, <b>Delete marked</b>, <b>Flip normals</b>, <b>Cut</b>, <b>Fill holes</b>,{' '}
-              <b>Smooth</b>, <b>Shrink/expand</b>, <b>Boolean</b> and <b>Shell/hollow</b> edit a copy of the scan, shown
+              <b>Smooth</b>, <b>Shrink/expand</b>, <b>Boolean</b>, <b>Shell/hollow</b> and <b>Densify</b> edit a copy of the scan, shown
               here in its place; every other workspace
               goes on measuring the scan as it was until <b>Use for analysis</b> takes the copy into
               use. <b>Reduce mesh</b> makes a light mesh beside it — of the copy, when there is one —
@@ -252,6 +261,8 @@ export function MeshPanel({
         <OffsetTool ready={Boolean(scanName)} busy={busy} onOffset={onOffset} onClear={onClearMarking} />
       ) : tool === 'shell' ? (
         <ShellTool ready={Boolean(scanName)} busy={busy} onShell={onShell} />
+      ) : tool === 'densify' ? (
+        <DensifyTool ready={Boolean(scanName)} busy={busy} onDensify={onDensify} />
       ) : (
         <SmoothTool ready={Boolean(scanName)} busy={busy} onSmooth={onSmooth} onClear={onClearMarking} />
       )}

@@ -9,6 +9,7 @@ import type { CreaseSetting, ScanRender } from '../../../src/core/geometry/creas
 import type { BooleanOp, BooleanReport, BooleanTool, Closedness } from './boolean'
 import type { BreakReport } from './breakSurface'
 import type { CutPreview, CutReport } from './cut'
+import type { DensifyReport, DensifySettings } from './densify'
 import type { FillMode, FillReport, HoleSurvey } from './fillHoles'
 import type { HollowReport } from './hollow'
 import type { OffsetReport, OffsetSettings, ThickenReport, ThickenSide } from './offset'
@@ -33,7 +34,9 @@ export type PieceCount = Omit<PieceSurvey, 'islandMask' | 'islandCentres'>
  *  mesh and the union of the solids — their triangles, in the scan's frame,
  *  and their names — one by `op` (core/boolean); Shrink / expand moves the
  *  surface along its normal (core/offset); Shell hollows a closed mesh
- *  (core/hollow) or thickens an open one into a solid (core/offset). */
+ *  (core/hollow) or thickens an open one into a solid (core/offset);
+ *  Densify splits triangles until no edge is longer than a length
+ *  (core/densify). */
 export type ScanEditRequest =
   | { type: 'delete-marked'; vertices: Uint32Array }
   | { type: 'flip'; vertices?: Uint32Array }
@@ -44,6 +47,7 @@ export type ScanEditRequest =
   | { type: 'offset'; settings: OffsetSettings }
   | { type: 'hollow'; thickness: number }
   | { type: 'thicken'; thickness: number; side: ThickenSide }
+  | { type: 'densify'; settings: DensifySettings }
 
 /** What an edit did, tool by tool. */
 export type MeshEditReport =
@@ -56,6 +60,7 @@ export type MeshEditReport =
   | { kind: 'offset'; report: OffsetReport }
   | { kind: 'hollow'; report: HollowReport }
   | { kind: 'thicken'; report: ThickenReport }
+  | { kind: 'densify'; report: DensifyReport }
 
 /** The mesh as an edit leaves it, in scan coordinates, and every old
  *  vertex's new number — −1 for one that went. The worker's own mesh is left

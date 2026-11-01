@@ -22,6 +22,7 @@ import { smoothMesh } from './core/smooth'
 import { booleanMesh, closedness } from './core/boolean'
 import { offsetMesh, thickenMesh } from './core/offset'
 import { hollowMesh } from './core/hollow'
+import { densifyMesh } from './core/densify'
 import { loadManifold } from './core/manifold'
 import { defaultBreakSpeck, findBreak } from './core/breakSurface'
 import { prepareBody, trimToScan, type PreparedBody } from './core/trimToScan'
@@ -193,6 +194,11 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
       const thick = thickenMesh(g.positions, g.indices, g.vertexCount, edit.thickness, edit.side, ctx.progress, surface)
       result = thick
       report = { kind: 'thicken', report: thick.report }
+    } else if (edit.type === 'densify') {
+      ctx.progress('Densifying…')
+      const dense = densifyMesh(g.positions, g.indices, g.vertexCount, edit.settings, ctx.progress)
+      result = dense
+      report = { kind: 'densify', report: dense.report }
     } else {
       ctx.progress('Loading the mesh boolean…')
       const wasm = await loadManifold()

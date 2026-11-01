@@ -224,9 +224,10 @@ describe('the Mesh Tools settings', () => {
 
   it('sizes the edit tools to the part until they are set by hand', () => {
     const m = useMeshTools.getState()
-    useMeshTools.setState({ holeSizeAuto: true, smoothSizeAuto: true, smoothLimitAuto: true, shellThicknessAuto: true })
+    useMeshTools.setState({ holeSizeAuto: true, smoothSizeAuto: true, smoothLimitAuto: true, shellThicknessAuto: true, densifyEdgeAuto: true })
     m.suggestForPart(170)
-    expect(useMeshTools.getState()).toMatchObject({ holeSize: 10, smoothSize: 2, smoothLimit: 0.2, shellThickness: 2 })
+    expect(useMeshTools.getState()).toMatchObject({ holeSize: 10, smoothSize: 2, smoothLimit: 0.2, shellThickness: 2, densifyEdge: 2 })
+    m.setDensifyEdge(0.3)
     m.setHoleSize(3)
     m.setSmoothSize(0.5)
     m.setSmoothLimit(0.01)
@@ -241,6 +242,8 @@ describe('the Mesh Tools settings', () => {
       smoothLimitAuto: false,
       shellThickness: 1.2,
       shellThicknessAuto: false,
+      densifyEdge: 0.3,
+      densifyEdgeAuto: false,
     })
     m.setSmoothSize(0)
     expect(useMeshTools.getState().smoothSize).toBeGreaterThan(0)

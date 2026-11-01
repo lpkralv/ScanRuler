@@ -7,6 +7,28 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Densify, for an STL exported from CAD** (2026-11-01, issue #42). An STL
+  saved from CAD has its points only on the edges and rims of the part — a flat
+  face is a few long triangles with nothing inside — so finding regions, a fit
+  started from a click and the scan check all came up empty or wrong on it.
+  **Mesh Tools → Densify** splits its triangles until no edge is longer than a
+  length you set, a hundredth of the part to start; every new point lies on the
+  surface, so the part keeps its shape, its volume and its holes' rims exactly.
+  It is one step of the undo history, like the other edits, and agents run it
+  as `mesh.densify`. A densify that would make more than two million points is
+  refused with a length that fits.
+
+- **The scan check knows a CAD export** (2026-11-01, issue #42). On such a mesh
+  `scan.qa` read the part's own corners as 1.6 mm of noise and its parallel
+  faces as 2.5° apart. It now reads the noise face by face and the faces' lean
+  from the triangles, and says plainly that the mesh is a sparse CAD
+  tessellation to densify before fitting. `scan.segment` reads its noise the
+  same way.
+
+- **`show: { map: true }` in the Deviation workspace** (2026-11-01). A picture
+  of the Deviation workspace can put its map on or off for itself, as one of the
+  Reverse engineer could; it was refused there as not on screen.
+
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All

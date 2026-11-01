@@ -4,7 +4,8 @@
 // deleted and the hole filled again, cut, expanded and hollowed, a step of
 // the history each — every step walked back, and the copy taken into use;
 // then a body trimmed to a block's top, a peg taken out of it and the block
-// reduced. The mesh worker runs in this thread under the app's own headless
+// reduced; and the bracket of issue #42 as a CAD export, read by scan.qa as
+// a sparse tessellation, densified, and read again. The mesh worker runs in this thread under the app's own headless
 // session (tests/commandKit.ts).
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ManifoldToplevel } from 'manifold-3d'
@@ -15,6 +16,7 @@ import { offerSolids } from '../../../src/app/solids'
 import { useHistory } from '../../../src/state/historyStore'
 import { useShell } from '../../../src/state/shellStore'
 import { boxMesh } from '../../../tests/helpers'
+import { cadBracket } from '../../../tests/cadBracket'
 import { refused, run, startHeadless, stlBytes, undoLabels, type Headless } from '../../../tests/commandKit'
 import { createMeshToolsSession, installMeshToolsSession } from '../app/meshToolsSession'
 import { useMeshTools } from '../state/meshStore'
@@ -116,7 +118,7 @@ describe('cleaning a scan up through the commands', () => {
     expect((await refused('mesh.inspect')).code).toBe('no_scan')
     const mesh = listCommands().filter((c) => c.name.startsWith('mesh.'))
     expect(mesh.map((c) => c.name)).toEqual(
-      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
+      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.densify', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
     )
     for (const c of mesh) {
       const w = schemaWeight(c.input)
@@ -282,6 +284,64 @@ describe('cleaning a scan up through the commands', () => {
     await run('history.undo')
     expect(useMeshTools.getState().copyTriangles).toBe(copy)
   }, 60_000)
+})
+
+describe('an STL exported from CAD', () => {
+  interface Qa {
+    noise: { median: number }
+    tessellation: { span: number; sparse: boolean; coplanar?: number }
+    thickness: { axis: Vec3; tiltDeg: number; faces: { topDeg: number; bottomDeg: number } }
+    notes: string[]
+  }
+  interface Segment { found: number; curvedRuns?: { cylinder?: { radius: number } }[] }
+
+  it('is read as a sparse tessellation, densified, and read as the part it is', async () => {
+    const { soup } = await cadBracket()
+    await open('bracket_fine.stl', soup)
+    useHistory.setState({ past: [], future: [] })
+
+    // Points only on edges and rims: no plane round a point sees a face, and
+    // the vertex normals, averaged round corners, would lean the axis.
+    const raw = await run<Qa>('scan.qa')
+    expect(raw.tessellation).toMatchObject({ sparse: true, coplanar: 1 })
+    expect(raw.tessellation.span).toBeGreaterThan(20)
+    expect(raw.noise.median).toBeLessThan(1e-3)
+    expect(raw.thickness.axis).toEqual([0, 0, 1])
+    expect(raw.thickness.faces.topDeg).toBeLessThan(0.01)
+    expect(raw.notes[0]).toMatch(/^The mesh is a sparse CAD tessellation, not a scan: .* densify it before fitting: mesh\.densify \(Mesh Tools → Densify\)/)
+    expect(raw.notes.join(' ')).not.toMatch(/Noisy surface|Closed skin/)
+    expect((await run<Segment>('scan.segment')).found).toBe(0)
+    const before = await run<Figures>('mesh.inspect')
+    expect([before.vertices, before.triangles]).toEqual([876, 1772])
+
+    // A hundredth of the part's diagonal to start: 1 mm.
+    const dense = await run<EditAnswer>('mesh.densify')
+    expect(dense.edit).toMatchObject({ kind: 'densify', maxEdge: 1, text: 'Densified to edges of 1 mm at most' })
+    expect(dense.report).toMatchObject({ maxEdge: 1, verticesBefore: 876, trianglesBefore: 1772 })
+    expect(dense.report.longestAfter).toBeLessThanOrEqual(1 + 1e-5)
+    expect(dense.mesh).toMatchObject({ working: 'edited copy', bounds: before.bounds, open: 0, bad: 0 })
+    expect(dense.mesh.volume).toBeCloseTo(before.volume!, 3)
+    expect(useMeshTools.getState().tool).toBe('densify')
+    expect(undoLabels()).toEqual(['Agent: densify'])
+
+    await run('mesh.use_edited')
+    const read = await run<Qa>('scan.qa')
+    expect(read.tessellation.sparse).toBe(false)
+    expect(read.tessellation.span).toBeLessThanOrEqual(1)
+    expect(read.noise.median).toBeLessThan(1e-4)
+    expect(read.thickness.faces.topDeg).toBeLessThan(0.01)
+    expect(read.notes[0]).toBe('The surface has no noise — a CAD tessellation, not a scan: read its numbers exactly.')
+    // The holes and the bore come out as cylinders, read off points that
+    // now lie inside their facets.
+    const runs = (await run<Segment>('scan.segment')).curvedRuns ?? []
+    const radii = runs.map((r) => r.cylinder?.radius).filter((r): r is number => r !== undefined)
+    expect(radii.filter((r) => Math.abs(r - 2.25) < 0.05).length).toBeGreaterThanOrEqual(4)
+
+    // Too fine for the limit: refused, nothing changed.
+    const refusal = await refused('mesh.densify', { maxEdge: 0.01 })
+    expect(refusal.message).toMatch(/would make about [\d,]+ points, and a mesh may have 2,000,000 here — take an edge of [\d.]+ mm or longer/)
+    expect(useMeshTools.getState().densifyEdge).toBe(1)
+  }, 120_000)
 })
 
 describe('what the viewport shows', () => {

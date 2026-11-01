@@ -40,6 +40,8 @@ describe('the Mesh Tools part of a project', () => {
       shellThickness: 2,
       shellThicknessAuto: true,
       shellSide: 'in',
+      densifyEdge: 1,
+      densifyEdgeAuto: true,
       report: null,
       edits: [],
     })
@@ -58,6 +60,7 @@ describe('the Mesh Tools part of a project', () => {
       offset: { distance: 0.1, direction: 'expand', scope: 'all' },
       shell: { thickness: 2, thicknessAuto: true, side: 'in' },
       trim: { offset: 0, depth: 0.3, flip: false },
+      densify: { edge: 1, edgeAuto: true },
     })
     const json = JSON.parse(JSON.stringify(manifest))
     useMeshTools.setState({ tolerance: 0.5, toleranceAuto: true, maxTriangles: 50_000, cutOffset: 9, cutOffsetAuto: true })
@@ -73,7 +76,7 @@ describe('the Mesh Tools part of a project', () => {
     })
   })
 
-  it('keeps the cut, fill, smoothing, offset, trim and shell settings and every kind of edit, and reads a project from before them', () => {
+  it('keeps the cut, fill, smoothing, offset, trim, shell and densify settings and every kind of edit, and reads a project from before them', () => {
     useMeshTools.setState({
       cutRef: 4,
       cutOffset: -2,
@@ -99,8 +102,11 @@ describe('the Mesh Tools part of a project', () => {
       trimOffset: 0.15,
       trimDepth: 0.5,
       trimFlip: true,
+      densifyEdge: 0.5,
+      densifyEdgeAuto: false,
       edits: [
         { kind: 'delete', triangles: 120 },
+        { kind: 'densify', maxEdge: 0.5, vertices: 40_000, triangles: 80_000 },
         { kind: 'flip', triangles: 5000 },
         { kind: 'flip', triangles: 32, region: 25 },
         { kind: 'offset', distance: -0.25, maxMove: 0.35, region: 300 },
@@ -146,6 +152,8 @@ describe('the Mesh Tools part of a project', () => {
       trimOffset: 0.15,
       trimDepth: 0.5,
       trimFlip: true,
+      densifyEdge: 0.5,
+      densifyEdgeAuto: false,
       edits: saved.edits,
     })
 
@@ -166,6 +174,8 @@ describe('the Mesh Tools part of a project', () => {
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, trim: { ...json.mesh.trim, offset: -0.1 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, trim: { ...json.mesh.trim, depth: 0 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, trim: { ...json.mesh.trim, flip: 'yes' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, densify: { ...json.mesh.densify, edge: 0 } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'densify', maxEdge: 1, vertices: '9', triangles: 1 }] } }))).toThrow(/Malformed/)
 
     // A project from before these tools keeps whatever they were set to.
     const older = { ...json, mesh: { ...json.mesh } }
@@ -176,13 +186,14 @@ describe('the Mesh Tools part of a project', () => {
     delete older.mesh.offset
     delete older.mesh.shell
     delete older.mesh.trim
-    useMeshTools.setState({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05 })
+    delete older.mesh.densify
+    useMeshTools.setState({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05, densifyEdge: 2 })
     prepareProjectState(validateManifest(older))()
-    expect(useMeshTools.getState()).toMatchObject({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05 })
+    expect(useMeshTools.getState()).toMatchObject({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05, densifyEdge: 2 })
     useMeshTools.setState({
       edits: [], cutRef: 'z', cutOffsetAuto: true, smoothScope: 'all', boolOp: 'subtract',
       offsetDistance: 0.1, offsetDirection: 'expand', offsetScope: 'all', shellThickness: 2, shellThicknessAuto: true, shellSide: 'in',
-      trimOffset: 0, trimDepth: 0.3, trimFlip: false,
+      trimOffset: 0, trimDepth: 0.3, trimFlip: false, densifyEdge: 1, densifyEdgeAuto: true,
     })
   })
 

@@ -13,6 +13,7 @@ import { orthoBasis } from '../../core/fit/linalg'
 import { niceCeil } from '../../core/field/stats'
 import { scanBounds } from '../state'
 import { CommandError, type Command } from '../types'
+import { listCommands } from '../registry'
 import { discardSchema, fileNameSchema, fileOf, lastError, requireDiscardable } from './common'
 import { roundTo } from '../../core/round'
 import { cellNoise, heightLevels, rampsOf, reliefGrid, slopedCells } from '../../core/geometry/heightGrid'
@@ -1039,6 +1040,10 @@ const QA_TILT_NOTE = 0.2
  *  while one real hole of 1.5 mm, 4.7 mm round, is 2.5 %. */
 const QA_PINHOLES = 0.02
 /** What a skin closed all round asks of whoever reads holes off it. */
+/** The command that splits a sparse tessellation's triangles until its
+ *  points cover its faces — Mesh Tools' Densify, named only where a build
+ *  carries it. */
+const DENSIFY_COMMAND = 'mesh.densify'
 const QA_WRAP_ADVICE = 'a wrap bridges holes it did not see through — read each hole from both ends (scan.heightmap along its axis each way); element.fit on a bore answers closed where its axis runs into the skin.'
 
 /** A rim's circle as an answer gives it. */
@@ -1048,14 +1053,14 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
   name: 'qa',
   title: 'Check the scan before modelling',
   description:
-    'One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: "circle", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }) and notes, what looks wrong, plainly. Trap: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through. Changes nothing.',
+    'One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: "circle", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), tessellation (span: the median triangle’s longest edge, mm; sparse: a CAD export with points only on edges and rims — densify it before fitting), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }) and notes, what looks wrong, plainly. Trap: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through. Changes nothing.',
   input: obj({ axis: oneOf([enumOf(['x', 'y', 'z'], 'A world axis.'), vec3('A direction, any length.')], 'The thickness axis.') }),
   readOnly: true,
   run: async ({ axis }) => {
     requireScan()
     const client = commandHost().session.clientRef.current
     if (!client) throw new CommandError('unavailable', 'The mesh worker is not running.')
-    const { rims, noise } = await client.scanQa(QA_NOISE_SAMPLE, QA_RIMS)
+    const { rims, noise, tessellation: tess } = await client.scanQa(QA_NOISE_SAMPLE, QA_RIMS)
     // The scan's points and normals, spread evenly: the box across the axis
     // and the way most of it faces come off them.
     const inf = Infinity
@@ -1072,7 +1077,11 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
       d = [k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0]
       axisFrom = axis ? 'given' : 'the alignment’s z'
     } else {
-      d = dominantFacing(sample.normals)
+      // A sparse tessellation's vertex normals are averaged round corners —
+      // every vertex is on one — and lean the axis by degrees, which reads
+      // as a tilt between faces that are parallel: its triangles, by area,
+      // face the way the part does.
+      d = tess.sparse ? tess.facing : dominantFacing(sample.normals)
       axisFrom = 'the way most of the surface faces'
       if (!d) throw new CommandError('failed', 'The scan has too few points to read a thickness axis off — give axis.')
       // Pointing the way of its largest component, so +z stays +z.
@@ -1132,6 +1141,12 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
         ...(rims.moreCircles > 0 ? { moreCircles: rims.moreCircles } : {}),
       },
       noise: { median: roundTo(noise.median, 4), p90: roundTo(noise.p90, 4), sampled: noise.sampled },
+      tessellation: {
+        span: roundTo(tess.span, 3),
+        spacing: roundTo(tess.spacing, 3),
+        sparse: tess.sparse,
+        ...(tess.sparse ? { coplanar: roundTo(tess.coplanar, 2) } : {}),
+      },
     }
     // A scan closed all round was wrapped: the skin runs across every hole
     // the scanner did not see through — and so was one whose only rims are
@@ -1147,7 +1162,19 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
       notes.push(`${rims.count} open rim${rims.count === 1 ? '' : 's'}, ${roundTo(rims.total, 1)} mm in all — the longest ${roundTo(l.length, 1)} mm round [${v3(l.at).join(', ')}]: the scan has holes there; fits and sections near them see less surface.`)
     }
     if (rims.count === 0 && scanned) notes.push(`Closed skin, no open rims: ${QA_WRAP_ADVICE}`)
-    if (noise.median > 0.03) notes.push(`Noisy surface: ${roundTo(noise.median, 3)} mm median scatter — read sizes from fits over large patches, not single points.`)
+    if (tess.sparse) {
+      // Its points are on edges and rims only: what reads the surface off
+      // its points — regions, a fit grown from a seed, the noise of a plane
+      // round a point — finds nothing inside a face, or reads across the
+      // crease. Its noise above is read face by face (localNoise).
+      const how = listCommands().some((c) => c.name === DENSIFY_COMMAND)
+        ? `${DENSIFY_COMMAND} (Mesh Tools → Densify), its edge a hundredth of the part to start`
+        : `subdivide it until no edge is longer than about ${niceCeil(size / 100)} mm`
+      const what = tess.coplanar >= 0.3 ? 'a sparse CAD tessellation, not a scan' : 'a sparse tessellation'
+      notes.push(
+        `The mesh is ${what}: its triangles span ${roundTo(tess.span, 1)} mm (median, by area) on a part ${roundTo(size, 0)} mm across, its points only on edges and rims. scan.segment finds no regions on it and element.fit seeded at a point fails or reads short — densify it before fitting: ${how}. Its geometry does not change.`,
+      )
+    } else if (noise.median > 0.03) notes.push(`Noisy surface: ${roundTo(noise.median, 3)} mm median scatter — read sizes from fits over large patches, not single points.`)
     else if (noise.median < 1e-4) notes.push('The surface has no noise — a CAD tessellation, not a scan: read its numbers exactly.')
     if (ts.length < 12) {
       out.thickness = { axis: d.map((x) => roundTo(x, 4)), axisFrom, cells: ts.length }

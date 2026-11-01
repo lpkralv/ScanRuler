@@ -49,6 +49,8 @@ export interface MeshPart {
    *  existed. */
   offset?: { distance: number; direction: 'expand' | 'shrink'; scope: 'all' | 'marked' }
   shell?: { thickness: number; thicknessAuto: boolean; side: 'in' | 'out' | 'both' }
+  /** Densify's edge length. Absent before the tool existed. */
+  densify?: { edge: number; edgeAuto: boolean }
   /** Trim to scan's settings: the offset from the break, the depth the break
    *  is found at, and which side is kept. Absent before the tool existed. */
   trim?: { offset: number; depth: number; flip: boolean }
@@ -81,6 +83,7 @@ export type ScanEditJson =
       cavities?: number
       volume?: number
     }
+  | { kind: 'densify'; maxEdge: number; vertices: number; triangles: number }
 
 /** A vertex map's bytes — the same view every time for the same map, since
  *  a member's identity is what says whether the session changed (see
@@ -145,6 +148,12 @@ function validateMeshPart(raw: unknown): MeshPart {
     if (!((s.thickness as number) > 0)) invalid('mesh.shell.thickness')
     if (!SIDES.includes(s.side as string)) invalid('mesh.shell.side')
   }
+  if (x.densify !== undefined) {
+    const d = object(x.densify, 'mesh.densify')
+    fields(d, 'edge', 'number', 'mesh.densify')
+    fields(d, 'edgeAuto', 'boolean', 'mesh.densify')
+    if (!((d.edge as number) > 0)) invalid('mesh.densify.edge')
+  }
   if (x.trim !== undefined) {
     const t = object(x.trim, 'mesh.trim')
     fields(t, 'offset depth', 'number', 'mesh.trim')
@@ -184,7 +193,8 @@ function validateMeshPart(raw: unknown): MeshPart {
         for (const key of ['cavities', 'volume'] as const) {
           if (edit[key] !== undefined && typeof edit[key] !== 'number') invalid(`${where}.${key}`)
         }
-      } else invalid(`${where}.kind`)
+      } else if (edit.kind === 'densify') fields(edit, 'maxEdge vertices triangles', 'number', where)
+      else invalid(`${where}.kind`)
     }
   }
   if (x.edits !== undefined) scanEdits(x.edits, 'mesh.edits')
@@ -226,6 +236,8 @@ function scanEditOf(e: ScanEditJson): ScanEdit {
         ...(e.cavities !== undefined ? { cavities: e.cavities } : {}),
         ...(e.volume !== undefined ? { volume: e.volume } : {}),
       }
+    case 'densify':
+      return { kind: e.kind, maxEdge: e.maxEdge, vertices: e.vertices, triangles: e.triangles }
   }
 }
 
@@ -253,6 +265,7 @@ function meshPartState(p: MeshPart): Partial<ReturnType<typeof useMeshTools.getS
     ...(p.boolean ? { boolOp: p.boolean.op } : {}),
     ...(p.offset ? { offsetDistance: p.offset.distance, offsetDirection: p.offset.direction, offsetScope: p.offset.scope } : {}),
     ...(p.shell ? { shellThickness: p.shell.thickness, shellThicknessAuto: p.shell.thicknessAuto, shellSide: p.shell.side } : {}),
+    ...(p.densify ? { densifyEdge: p.densify.edge, densifyEdgeAuto: p.densify.edgeAuto } : {}),
     ...(p.trim ? { trimOffset: p.trim.offset, trimDepth: p.trim.depth, trimFlip: p.trim.flip } : {}),
     edits: (p.edits ?? []).map(scanEditOf),
     pending: (p.copy?.pending ?? []).map(scanEditOf),
@@ -286,6 +299,7 @@ export const meshSection: ProjectSection<MeshPart> = {
       offset: { distance: x.offsetDistance, direction: x.offsetDirection, scope: x.offsetScope },
       shell: { thickness: x.shellThickness, thicknessAuto: x.shellThicknessAuto, side: x.shellSide },
       trim: { offset: x.trimOffset, depth: x.trimDepth, flip: x.trimFlip },
+      densify: { edge: x.densifyEdge, edgeAuto: x.densifyEdgeAuto },
       ...(x.edits.length > 0 ? { edits: x.edits } : {}),
     }
     // The copy being edited, beside the scan: the file and the numbering that

@@ -23,7 +23,7 @@
 // surface are joined into runs (see growRuns).
 
 import type { Cylinder, MeshGraph, Plane, Vec3 } from '../types'
-import { localNoise } from '../geometry/scanQa'
+import { localNoise, tessellation } from '../geometry/scanQa'
 import { cylinderResidual, fitCylinderOnAxis, refineCylinderGeometric, splitTwoCylinders } from './cylinder'
 import { fitHeight } from './heightSurface'
 import { normalizeOrZ, orthoBasis, rmsOver, symmetricEigen3 } from './linalg'
@@ -1028,7 +1028,9 @@ export function segmentPlanes(g: MeshGraph, opts: SegmentOptions): Segmentation 
     return region
   })
 
-  const noise = localNoise(g, NOISE_SAMPLE).median
+  // Read face by face on a sparse tessellation, whose every point is on an
+  // edge (see localNoise).
+  const noise = localNoise(g, NOISE_SAMPLE, tessellation(g).sparse).median
   const samples = regions.map((_, k) => strided(vertices.subarray(offsets[k], offsets[k + 1]), REGION_SAMPLE))
 
   for (const [key, edges] of meets) {

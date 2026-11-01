@@ -519,12 +519,12 @@ export class MeshWorkerClient {
     return { values: res.values, corners: res.corners, weights: res.weights }
   }
 
-  /** The scan's open rims (the `rims` longest) and its noise over `sample`
-   *  vertices. */
+  /** The scan's open rims (the `rims` longest), its noise over `sample`
+   *  vertices, and how it is tessellated. */
   async scanQa(sample: number, rims: number): Promise<Omit<Extract<WorkerResponse, { type: 'scan-qa-ok' }>, 'type' | 'requestId'>> {
     const requestId = this.nextId++
-    const { rims: r, noise } = await this.request<Extract<WorkerResponse, { type: 'scan-qa-ok' }>>({ type: 'scan-qa', requestId, sample, rims })
-    return { rims: r, noise }
+    const { rims: r, noise, tessellation } = await this.request<Extract<WorkerResponse, { type: 'scan-qa-ok' }>>({ type: 'scan-qa', requestId, sample, rims })
+    return { rims: r, noise, tessellation }
   }
 
   /** One open rim by its number among the scan's rims, longest first, as

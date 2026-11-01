@@ -13,13 +13,13 @@ tool's key again, puts it away — and they are of the two kinds the
 workspace has:
 
 - **Remove islands**, **Delete marked**, **Flip normals**, **Cut**,
-  **Fill holes**, **Smooth**, **Shrink/expand**, **Boolean** and
-  **Shell/hollow** edit a copy of the scan — the specks floating off it,
-  what is not the part, a surface facing the wrong way, the
+  **Fill holes**, **Smooth**, **Shrink/expand**, **Boolean**,
+  **Shell/hollow** and **Densify** edit a copy of the scan — the specks
+  floating off it, what is not the part, a surface facing the wrong way, the
   base it stood on, the holes the scanner left, the scatter on it, the
   spray it was scanned under, a bore it could not see to the bottom of, the
-  inside a print does not need — which every workspace measures once it is
-  taken into use.
+  inside a print does not need, the empty faces of an STL exported from
+  CAD — which every workspace measures once it is taken into use.
 - **Reduce mesh** and **Trim to scan** make something beside the scan: a
   light mesh to model over in CAD, held within a tolerance of it, and a body
   modelled to mend a broken part cut to fit its break — of the edited copy,
@@ -28,7 +28,8 @@ workspace has:
 A good order is the one the keys suggest: islands and marked surface off
 first, the normals turned the right way out, then the cut, then the holes,
 smoothing, a shrink or an expansion, a boolean, the shell, and the
-reduction last.
+reduction last. An STL exported from CAD needs none of the cleaning, only
+**Densify** before anything is fitted on it.
 
 ### The parts list
 
@@ -653,6 +654,38 @@ cutting into the part there: a flat facet across a convex round reads
 slightly positive all over, which is what a chord does. Hover the part for
 the reading under the cursor.
 
+### Densify
+
+An STL exported from CAD is not a scan: its points lie only on the edges and
+rims of the part, and a flat face is a few long triangles from one rim to the
+next with nothing inside. Everything that reads the surface off its points —
+`scan.segment`'s regions, a fit grown from a click, the noise `scan.qa` reads
+from planes fitted round a point — finds no surface inside a face, or reads
+across the edge beside it. `scan.qa` calls such a mesh *sparse*. Densify
+splits its triangles until no edge is longer than **Longest edge**, so the
+faces fill with points.
+
+| Control | Unit | What it does |
+| --- | --- | --- |
+| **Longest edge** | mm | No edge is left longer than this. Starts at a hundredth of the part's diagonal — 1 mm for a part a hand's width across. |
+
+Each round splits, at its middle, every edge that is the longest side of a
+triangle and longer than the length — longest-edge bisection (Rivara, 1984),
+written from the paper — once for both triangles on it, so the mesh stays
+conforming; a triangle becomes two, three or four. Every new point is the
+middle of an edge, on the triangle it was made on: the surface does not move,
+the volume it encloses stays as it was, and a point on a bore's rim stays
+exactly on the circle it was tessellated from — read radii off those, not off
+the points across a facet, which lie short by the chord's sagitta. The old
+vertices keep their numbers, so a marking or a fitted element's region stays
+where it was.
+
+The points a densify makes go with the inverse square of the length, and a CAD
+export's long slivers make more than their area suggests: the 60 × 40 mm
+bracket of issue #42, 1,772 triangles, comes out with 132,000 points at 1 mm.
+A densify that would go past two million points is refused before it starts,
+with the length that would fit. The edit is one step of the undo history.
+
 ## Agents: cleaning a scan up through the commands
 
 An AI agent connected through scanruler-mcp (the app README's *Agents*)
@@ -668,7 +701,7 @@ tools `mesh_cut` and so on, registered from the plugin's `install()`
 | `mesh.inspect` | the mesh the tools work on in figures — triangles, bounds, open edges, the volume it encloses — and its islands and holes at a size, the middle of each; with `deviation`, the copy measured against the scan in use |
 | `mesh.cut_preview` | what a cut at a plane would close, bridge and leave open |
 | `mesh.mark` | a region marked on the part as the window, brush and lasso mark it, for Delete marked, Flip normals, Smooth or Shrink / expand — to look at before the edit, or for the person to put right |
-| `mesh.remove_islands`, `mesh.delete_marked`, `mesh.flip_normals`, `mesh.cut`, `mesh.fill_holes`, `mesh.smooth`, `mesh.offset`, `mesh.boolean`, `mesh.shell` | the edits, each one step of the undo history — Flip normals turns the whole mesh over, or a region; Shell hollows a closed part or thickens an open one, as the panel's does |
+| `mesh.remove_islands`, `mesh.delete_marked`, `mesh.flip_normals`, `mesh.cut`, `mesh.fill_holes`, `mesh.smooth`, `mesh.offset`, `mesh.boolean`, `mesh.shell`, `mesh.densify` | the edits, each one step of the undo history — Flip normals turns the whole mesh over, or a region; Shell hollows a closed part or thickens an open one, as the panel's does; Densify gives a CAD export points inside its faces |
 | `mesh.reduce`, `mesh.trim` | the reduced mesh and Trim to scan's piece, made beside the scan |
 | `mesh.use_edited`, `mesh.discard_edited` | the Edited copy section's two buttons |
 | `mesh.export` | the edited copy, the reduced mesh or the piece as STL or 3MF (`format`), as the panel's buttons write them |
@@ -707,7 +740,8 @@ the panel, the reduced mesh as STL).
 ## Browser checks
 
 Against a running dev server, like the app's own; `e2e-mesh-edits`,
-`e2e-mesh-trim` and `e2e-agent-mesh` also run in the app's `npm run e2e:ci`,
+`e2e-mesh-trim`, `e2e-agent-mesh` and `e2e-mesh-densify` also run in the
+app's `npm run e2e:ci`,
 listed in [ci.json](ci.json).
 
 ```bash
@@ -716,6 +750,7 @@ node plugins/mesh-tools/scripts/e2e-mesh-edits.mjs # Mesh Tools: fill holes, smo
 node plugins/mesh-tools/scripts/e2e-mesh-boolean.mjs # Mesh Tools: a cylinder modelled in Reverse engineer taken out of a closed scan, exported
 node plugins/mesh-tools/scripts/e2e-mesh-shell.mjs # Mesh Tools: shrink, expand a marked face, hollow, thicken a cut-open copy, undo
 node plugins/mesh-tools/scripts/e2e-mesh-flip.mjs  # Mesh Tools: flip a closed box inside-out and back, then a window-marked patch alone
+node plugins/mesh-tools/scripts/e2e-mesh-densify.mjs # Mesh Tools: a box of twelve triangles densified from the panel, the edit listed, undone
 node plugins/mesh-tools/scripts/e2e-mesh-trim.mjs  # Mesh Tools: a box modelled in Reverse engineer trimmed to a block's rough top
 node plugins/mesh-tools/scripts/e2e-agent-mesh.mjs # Mesh Tools through an MCP client: a cube cleaned up, cut and reduced; needs npm --prefix mcp ci
 ```

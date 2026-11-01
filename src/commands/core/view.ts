@@ -52,7 +52,7 @@ const fitSchema = bool('Fit everything shown into the frame, keeping the directi
 /** The app's own toggles: what the scene draws of the session. The scan
  *  and the reference go through the Deviation workspace's own switches
  *  while it is on screen, so its effects do not put them straight back. */
-function baseToggles(scene: SceneManager): ViewToggle[] {
+export function baseToggles(scene: SceneManager): ViewToggle[] {
   const onDeviation = () => useShell.getState().workspace === 'deviation'
   return [
     {
@@ -66,6 +66,16 @@ function baseToggles(scene: SceneManager): ViewToggle[] {
       description: 'the reference part of the Deviation workspace',
       shown: () => (onDeviation() ? useDeviation.getState().showNominal : scene.nominalShown()),
       show: (on) => (onDeviation() ? useDeviation.getState().setShowNominal(on) : scene.setNominalVisible(on)),
+    },
+    // The map's own switch while the Deviation workspace is on screen —
+    // what deviation.settings { show } sets; a workspace that paints a map
+    // of its own takes the key over in its own (the Reverse engineer's).
+    {
+      key: 'map',
+      description: 'the deviation map on the scan (the Deviation workspace’s map switch)',
+      applies: onDeviation,
+      shown: () => useDeviation.getState().showMap,
+      show: (on) => useDeviation.getState().setShowMap(on),
     },
     { key: 'sections', description: 'the sections cut through the scan', shown: () => scene.sectionsShown(), show: (on) => scene.setSectionsShown(on) },
     { key: 'elements', description: 'the measured elements and dimensions drawn on the part', shown: () => scene.elementsShown(), show: (on) => scene.setElementsShown(on) },

@@ -19,7 +19,8 @@ import { useStore } from '../src/state/store'
 import { frameExtent, STANDARD_VIEWS, viewAcross, viewHalfHeight } from '../src/viewer/orthoViewport'
 import { refused, resetStores, run, startHeadless, undoLabels, type Headless } from './commandKit'
 // After the kit, which loads the commands in the order the app does.
-import { describeMapPainted, frameKeeper, type MapPainted } from '../src/commands/core/view'
+import { baseToggles, describeMapPainted, frameKeeper, type MapPainted } from '../src/commands/core/view'
+import type { SceneManager } from '../src/viewer/SceneManager'
 import { registerMapReport, type MapReport } from '../src/commands/mapReports'
 
 let headless: Headless
@@ -246,6 +247,20 @@ describe('the map a picture of the Deviation workspace shows', () => {
     useShell.getState().setWorkspace('deviation')
     useDeviation.setState({ source: 'reference', nominalName: 'nominal.stl', align: {} as AlignResult, mapStatus: 'ready', range: 0.5, showNominal: false })
   }
+
+  it('puts the map on and off by show.map in the Deviation workspace, its own switch', () => {
+    mapped()
+    const toggles = () => viewToggles(baseToggles({} as SceneManager))
+    expect(toggles().has('map')).toBe(true)
+    const refuse = (m: string) => new Error(m)
+    const off = applyShow(toggles(), { map: false }, refuse)
+    expect(useDeviation.getState().showMap).toBe(false)
+    off.putBack()
+    expect(useDeviation.getState().showMap).toBe(true)
+    // Elsewhere the Deviation workspace's switch is not on screen.
+    useShell.getState().setWorkspace('elements')
+    expect(toggles().has('map')).toBe(false)
+  })
 
   it('says nothing outside the Deviation workspace', () => {
     resetStores()

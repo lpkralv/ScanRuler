@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { boxMesh } from './helpers'
 import { cupMesh, platedHole, steppedBore } from './guideMeshes'
+import { cadBracket } from './cadBracket'
 import { refused, run, startHeadless, stlBytes, type Headless } from './commandKit'
 
 type Vec3 = [number, number, number]
@@ -87,6 +88,28 @@ describe('scan.qa', () => {
     expect(qa.noise.median).toBeLessThan(1e-3)
     expect(qa.thickness.p50).toBeCloseTo(40, 2)
     expect(qa.thickness.tiltDeg).toBeLessThan(0.01)
+  })
+
+  it('reads a CAD export as sparse — not as 1.6 mm of noise and faces 2.5° apart', async () => {
+    // The bracket of issue #42: every point on an edge or a rim. A plane
+    // fitted over a point's two rings spans the crease beside it, and the
+    // vertex normals, averaged round the corners, lean the axis.
+    const { soup } = await cadBracket()
+    await open(soup, 'bracket.stl')
+    const qa = await run<Qa & { tessellation: { span: number; spacing: number; sparse: boolean; coplanar?: number } }>('scan.qa')
+    expect(qa.tessellation).toMatchObject({ sparse: true, coplanar: 1 })
+    expect(qa.tessellation.span).toBeGreaterThan(20)
+    expect(qa.noise.median).toBeLessThan(1e-3)
+    expect(qa.thickness.axis).toEqual([0, 0, 1])
+    expect(qa.thickness.p50).toBeCloseTo(6, 2)
+    expect(qa.thickness.faces.topDeg).toBeLessThan(0.01)
+    expect(qa.thickness.faces.bottomDeg).toBeLessThan(0.01)
+    // With no densify command in this build, the note says what to do.
+    expect(qa.notes[0]).toMatch(/^The mesh is a sparse CAD tessellation, not a scan: its triangles span [\d.]+ mm .* subdivide it until no edge is longer than about 0\.8 mm\./)
+    expect(qa.notes.join(' ')).not.toMatch(/Noisy surface|Closed skin/)
+    // A fine mesh of the same kind of part is not.
+    await open(boxMesh(40, 20), 'box.stl')
+    expect((await run<Qa & { tessellation: { sparse: boolean } }>('scan.qa')).tessellation.sparse).toBe(false)
   })
 
   it('names faces out of parallel, the way the part thickens, and which face leans', async () => {

@@ -92,17 +92,21 @@ export function firstHitsAt(bvh: MeshBVH, positions: Float32Array, grid: RayGrid
 }
 
 /** The direction most of a surface faces, either way along it — a plate's
- *  faces: the leading eigenvector of Σ n·nᵀ over the normals given, then
- *  again over the normals within 20° of it, so the sides fall out. */
-export function dominantFacing(normals: Float32Array): Vec3 | null {
+ *  faces: the leading eigenvector of Σ w·n·nᵀ over the normals given, then
+ *  again over the normals within 20° of it, so the sides fall out. Each
+ *  normal counts once, or by its weight — a triangle's area, where the
+ *  points are too few and too unevenly spread to stand for the surface. */
+export function dominantFacing(normals: Float32Array, weights?: ArrayLike<number>): Vec3 | null {
   const lead = (keep: (i: number) => boolean): Vec3 | null => {
     const m = new Float64Array(9)
     let n = 0
     for (let i = 0; i + 2 < normals.length; i += 3) {
       if (!keep(i)) continue
+      const w = weights ? weights[i / 3] : 1
+      if (!(w > 0)) continue
       const x = normals[i], y = normals[i + 1], z = normals[i + 2]
-      m[0] += x * x; m[1] += x * y; m[2] += x * z
-      m[4] += y * y; m[5] += y * z; m[8] += z * z
+      m[0] += w * x * x; m[1] += w * x * y; m[2] += w * x * z
+      m[4] += w * y * y; m[5] += w * y * z; m[8] += w * z * z
       n++
     }
     if (n < 3) return null
@@ -218,25 +222,144 @@ export function scanRim(positions: Float32Array, indices: Uint32Array, loops: Ri
   return { vertices: Uint32Array.from(v), positions: at, corners, closed: r.loop.closed, length: r.gap.length, ...(circle ? { circle } : {}) }
 }
 
+/** How a mesh is tessellated. `span` is the median of each triangle's
+ *  longest edge, weighed by its area — what a point read off the mesh is
+ *  from the next one across a face — and `spacing` the side of the square
+ *  each vertex has to itself; `coplanar` the share of the area in triangles
+ *  lying flat against a neighbour (within 0.05°), which a CAD export's faces
+ *  do and a scan's do not; `facing` the direction most of its area faces
+ *  (dominantFacing, by triangle). `sparse` when its triangles run a
+ *  twentieth of the part's size or more: a CAD export, its points only on
+ *  edges and rims and none inside a face — a scan, or a mesh made dense,
+ *  has its triangles a hundredth of that. */
+export interface Tessellation {
+  sparse: boolean
+  span: number
+  spacing: number
+  coplanar: number
+  facing: Vec3 | null
+}
+
+/** Triangles spanning this much of the part's diagonal make a mesh sparse:
+ *  the bracket of issue #42 exported from CAD runs 0.5, a fine scan 0.005,
+ *  and the same bracket densified to Mesh Tools' default 0.013. */
+const SPARSE_SPAN = 0.05
+const COPLANAR_COS = Math.cos((0.05 * Math.PI) / 180)
+/** The triangles the span is read over, at most. */
+const TESSELLATION_SAMPLE = 20_000
+
+export function tessellation(g: MeshGraph): Tessellation {
+  const { positions: p, indices } = g
+  const T = g.triangleCount
+  const areas = new Float64Array(T)
+  const longest = new Float64Array(T)
+  const normals = new Float32Array(T * 3)
+  let area = 0
+  for (let t = 0; t < T; t++) {
+    const a = indices[t * 3] * 3, b = indices[t * 3 + 1] * 3, c = indices[t * 3 + 2] * 3
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const l = Math.hypot(nx, ny, nz)
+    areas[t] = l / 2
+    area += l / 2
+    if (l > 0) {
+      normals[t * 3] = nx / l
+      normals[t * 3 + 1] = ny / l
+      normals[t * 3 + 2] = nz / l
+    }
+    const wx = p[c] - p[b], wy = p[c + 1] - p[b + 1], wz = p[c + 2] - p[b + 2]
+    longest[t] = Math.sqrt(Math.max(ux * ux + uy * uy + uz * uz, vx * vx + vy * vy + vz * vz, wx * wx + wy * wy + wz * wz))
+  }
+  // The area-weighted median of the longest edges, over an even sample of
+  // the triangles — a scan's millions need not all be sorted.
+  const step = Math.max(1, Math.floor(T / TESSELLATION_SAMPLE))
+  const order: number[] = []
+  let sampled = 0
+  for (let t = 0; t < T; t += step) {
+    order.push(t)
+    sampled += areas[t]
+  }
+  order.sort((x, y) => longest[x] - longest[y])
+  let span = 0
+  for (let k = 0, run = 0; k < order.length; k++) {
+    run += areas[order[k]]
+    if (run >= sampled / 2) {
+      span = longest[order[k]]
+      break
+    }
+  }
+  const spacing = g.vertexCount > 0 ? Math.sqrt(area / g.vertexCount) : 0
+  const sparse = T > 0 && span >= SPARSE_SPAN * g.bboxDiag
+  // Flat against a neighbour across an edge — read only on a mesh already
+  // sparse, where the triangles are few: a scan's millions are spared the
+  // edge map, and its share is not reported.
+  let coplanar = 0
+  if (sparse) {
+    const across = new Map<number, number>()
+    const flat = new Uint8Array(T)
+    const n = g.vertexCount
+    for (let t = 0; t < T; t++) {
+      for (let e = 0; e < 3; e++) {
+        const a = indices[t * 3 + e], b = indices[t * 3 + ((e + 1) % 3)]
+        const key = a < b ? a * n + b : b * n + a
+        const o = across.get(key)
+        if (o === undefined) {
+          across.set(key, t)
+          continue
+        }
+        const dot = normals[t * 3] * normals[o * 3] + normals[t * 3 + 1] * normals[o * 3 + 1] + normals[t * 3 + 2] * normals[o * 3 + 2]
+        if (dot >= COPLANAR_COS) flat[t] = flat[o] = 1
+      }
+    }
+    for (let t = 0; t < T; t++) if (flat[t]) coplanar += areas[t]
+    coplanar = area > 0 ? coplanar / area : 0
+  }
+  return { sparse, span, spacing, coplanar, facing: dominantFacing(normals, areas) }
+}
+
 /** How noisy the surface is: over a sample of vertices spread through the
  *  scan, a plane fitted to each one's two rings of neighbours, and the
  *  scatter off it (rms, mm) — its median, and the 90th percentile. Edges
- *  and rounds fit a plane badly; the median is the faces'. */
-export function localNoise(g: MeshGraph, sample: number): { median: number; p90: number; sampled: number } {
+ *  and rounds fit a plane badly; the median is the faces'.
+ *
+ *  That holds while most vertices lie inside a face. On a sparse
+ *  tessellation (see tessellation) every vertex is on an edge or a rim, its
+ *  two rings reach tens of millimetres across onto the faces round the
+ *  corner, and the median is the part's shape — 1.6 mm on a plain
+ *  bracket. There, with `sparse`, each vertex is read over the one face it
+ *  is a corner of the most of: the triangles round it within 20° of the
+ *  largest of them, and their corners. */
+export function localNoise(g: MeshGraph, sample: number, sparse = false): { median: number; p90: number; sampled: number } {
   const step = Math.max(1, Math.floor(g.vertexCount / sample))
   const p = g.positions
   const rms: number[] = []
   const ring = new Set<number>()
   const cov = new Float64Array(9)
+  const around = sparse ? trianglesAround(g) : null
+  const cos20 = Math.cos((20 * Math.PI) / 180)
   for (let v = 0; v < g.vertexCount; v += step) {
     ring.clear()
     ring.add(v)
-    for (let e = g.adjOffsets[v]; e < g.adjOffsets[v + 1]; e++) {
-      const u = g.adjList[e]
-      ring.add(u)
-      for (let f = g.adjOffsets[u]; f < g.adjOffsets[u + 1] && ring.size < 48; f++) ring.add(g.adjList[f])
+    if (around) {
+      const { offsets, list, normals, areas } = around
+      let big = -1
+      for (let k = offsets[v]; k < offsets[v + 1]; k++) if (big < 0 || areas[list[k]] > areas[big]) big = list[k]
+      if (big < 0) continue
+      for (let k = offsets[v]; k < offsets[v + 1]; k++) {
+        const t = list[k]
+        if (normals[t * 3] * normals[big * 3] + normals[t * 3 + 1] * normals[big * 3 + 1] + normals[t * 3 + 2] * normals[big * 3 + 2] < cos20) continue
+        for (let c = 0; c < 3; c++) ring.add(g.indices[t * 3 + c])
+      }
+      if (ring.size < 4) continue
+    } else {
+      for (let e = g.adjOffsets[v]; e < g.adjOffsets[v + 1]; e++) {
+        const u = g.adjList[e]
+        ring.add(u)
+        for (let f = g.adjOffsets[u]; f < g.adjOffsets[u + 1] && ring.size < 48; f++) ring.add(g.adjList[f])
+      }
+      if (ring.size < 8) continue
     }
-    if (ring.size < 8) continue
     let cx = 0, cy = 0, cz = 0
     for (const u of ring) {
       cx += p[u * 3]
@@ -265,6 +388,34 @@ export function localNoise(g: MeshGraph, sample: number): { median: number; p90:
   rms.sort((a, b) => a - b)
   const at = (q: number) => (rms.length ? rms[Math.min(rms.length - 1, Math.floor(q * rms.length))] : 0)
   return { median: at(0.5), p90: at(0.9), sampled: rms.length }
+}
+
+/** The triangles round each vertex, with their unit normals and areas. */
+function trianglesAround(g: MeshGraph): { offsets: Uint32Array; list: Uint32Array; normals: Float32Array; areas: Float32Array } {
+  const { positions: p, indices } = g
+  const T = g.triangleCount
+  const offsets = new Uint32Array(g.vertexCount + 1)
+  for (let i = 0; i < T * 3; i++) offsets[indices[i] + 1]++
+  for (let v = 0; v < g.vertexCount; v++) offsets[v + 1] += offsets[v]
+  const fill = offsets.slice(0, g.vertexCount)
+  const list = new Uint32Array(T * 3)
+  const normals = new Float32Array(T * 3)
+  const areas = new Float32Array(T)
+  for (let t = 0; t < T; t++) {
+    for (let c = 0; c < 3; c++) list[fill[indices[t * 3 + c]]++] = t
+    const a = indices[t * 3] * 3, b = indices[t * 3 + 1] * 3, c = indices[t * 3 + 2] * 3
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const l = Math.hypot(nx, ny, nz)
+    areas[t] = l / 2
+    if (l > 0) {
+      normals[t * 3] = nx / l
+      normals[t * 3 + 1] = ny / l
+      normals[t * 3 + 2] = nz / l
+    }
+  }
+  return { offsets, list, normals, areas }
 }
 
 /** A plane z = a + b·u + c·v through the points, the worst of them left out

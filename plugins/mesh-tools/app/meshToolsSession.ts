@@ -8,7 +8,7 @@
 // too. So does Trim to scan: a body cut to fit the scan's break, the break
 // found and marked on the part to be put right by hand first. Remove islands,
 // Delete marked, Flip normals, Cut, Fill holes, Smooth, Shrink / expand,
-// Boolean and Shell edit a copy of the scan: the first edit makes it, the worker hands back the
+// Boolean, Shell and Densify edit a copy of the scan: the first edit makes it, the worker hands back the
 // copy as it is to be, it is kept as a file and loaded beside the scan — the
 // worker's and the viewport's, which shows it in the scan's place while Mesh
 // Tools is open. Every other workspace goes on measuring the scan as it was.
@@ -630,6 +630,33 @@ export function createMeshToolsSession({
     )
   }
 
+  // ---- Densify ------------------------------------------------------------------------
+
+  /** Split the copy's triangles until no edge is longer than the panel's
+   *  length — an STL exported from CAD given points inside its faces.
+   *  Nothing moves: every new point is the middle of an edge. */
+  const densifyScan = (run?: EditRun) => {
+    const { densifyEdge: maxEdge } = useMeshTools.getState()
+    const len = lengthsOf(run?.units)
+    return workerEdit(
+      'Mesh Tools: densify',
+      'Densifying…',
+      () => ({ type: 'densify', settings: { maxEdge } }),
+      (r) => {
+        const d = r.kind === 'densify' ? r.report : null
+        const vertices = d ? d.vertices - d.verticesBefore : 0
+        const triangles = d ? d.triangles - d.trianglesBefore : 0
+        return {
+          edit: { kind: 'densify', maxEdge, vertices, triangles },
+          status:
+            `Densified to edges of ${typedLen(maxEdge, len.units)} at most — ${count(d?.verticesBefore ?? 0)} points to ${count(d?.vertices ?? 0)}, ` +
+            `${count(d?.trianglesBefore ?? 0)} triangles to ${count(d?.triangles ?? 0)}; the surface has not moved. Ctrl+Z puts it back.`,
+        }
+      },
+      run,
+    )
+  }
+
   // ---- Boolean ------------------------------------------------------------------------
 
   // Each solid on offer, meshed once for each shape it has: what is drawn on
@@ -828,6 +855,7 @@ export function createMeshToolsSession({
     smoothScan,
     offsetScan,
     shellScan,
+    densifyScan,
     meshOfSolid,
     booleanScan,
     trimBodyOf,

@@ -29,6 +29,7 @@ import type { BooleanOp } from '../core/boolean'
 import type { FillMode } from '../core/fillHoles'
 import type { ThickenSide } from '../core/offset'
 import { DEFAULT_FACING_DEG } from '../core/select'
+import { DENSIFY_VERTEX_LIMIT } from '../core/densify'
 import {
   DELETE_MARK_COLOR,
   FLIP_MARK_COLOR,
@@ -622,6 +623,23 @@ const shell: Command<{ thickness?: number; side?: ThickenSide; mode?: 'hollow' |
 
 // ---- beside the scan ------------------------------------------------------------------------
 
+const densify: Command<{ maxEdge?: number }> = {
+  name: 'densify',
+  title: 'Densify the mesh',
+  description:
+    `Split triangles until no edge is longer than maxEdge — for an STL exported from CAD, whose points lie only on edges and rims, none inside a face (scan.qa says sparse): scan.segment finds no regions on it and a fit seeded at a point fails or reads short until it is densified. Every new point is the middle of an edge, so the surface, its volume and the rims do not move. maxEdge defaults to the panel’s, a hundredth of the part’s diagonal to start; refused when the mesh would grow past ${DENSIFY_VERTEX_LIMIT.toLocaleString('en-US')} points. Edits the copy. One undo step. Returns the edit (points and triangles before and after, the longest edge) and the mesh after it.`,
+  input: obj({ maxEdge: sizeIn('No edge is left longer than this, mm.') }),
+  history: false,
+  run: async ({ maxEdge }) =>
+    editAnswer(
+      await step('densify', 'Densifying', async () => {
+        inHand('densify')
+        if (maxEdge !== undefined) m().setDensifyEdge(maxEdge)
+        return session().densifyScan({ inStep: true })
+      }, true),
+    ),
+}
+
 const reduce: Command<{ tolerance?: number; maxTriangles?: number }> = {
   name: 'reduce',
   title: 'Reduce the mesh',
@@ -752,7 +770,8 @@ const exportPart: Command<{ part: 'edited' | 'reduced' | 'piece'; format?: MeshF
 /** The workspace's commands, in the order a cleanup goes: what is there,
  *  islands and marked surface off, the normals the right way, the cut, the
  *  holes, smoothing, a shrink
- *  or an expansion, a boolean, the shell, and the reduction last. */
+ *  or an expansion, a boolean, the shell, densifying, and the reduction
+ *  last. */
 export const meshCommands = [
   parts,
   show,
@@ -768,6 +787,7 @@ export const meshCommands = [
   offset,
   boolean,
   shell,
+  densify,
   reduce,
   trim,
   useEdited,

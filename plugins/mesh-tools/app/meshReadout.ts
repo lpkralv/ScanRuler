@@ -39,6 +39,7 @@ function settingsOut(m: MeshState = useMeshTools.getState()) {
     offset: { direction: m.offsetDirection, distance: m.offsetDistance, scope: m.offsetScope },
     boolean: { op: m.boolOp, solids: m.boolSolids },
     shell: { thickness: m.shellThickness, side: m.shellSide },
+    densify: { maxEdge: m.densifyEdge },
     trim: { body: m.trimSolid, offset: m.trimOffset, depth: m.trimDepth, flip: m.trimFlip },
   }
 }

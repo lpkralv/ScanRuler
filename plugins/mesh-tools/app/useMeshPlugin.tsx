@@ -90,7 +90,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   useEffect(() => tools.watch(), [tools])
   const { reduceField, reduceRgb, copyField, copyRgb } = tools
   const {
-    runReduce, removeIslands, deleteMarked, flipScan, cutScan, fillScanHoles, smoothScan, offsetScan, shellScan, booleanScan, trimScan,
+    runReduce, removeIslands, deleteMarked, flipScan, cutScan, fillScanHoles, smoothScan, offsetScan, shellScan, densifyScan, booleanScan, trimScan,
     adoptEditedCopy, discardEditedCopy,
   } = useMeshWorkspace(tools)
   // The units on screen: the maps' figures and the status lines of the
@@ -267,6 +267,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
         onSmooth={() => void smoothScan(undefined, { units })}
         onOffset={() => void offsetScan(undefined, { units })}
         onShell={(mode) => void shellScan(mode, { units })}
+        onDensify={() => void densifyScan({ units })}
         onBoolean={() => void booleanScan({ units })}
         onTrim={() => void trimScan(undefined, units)}
         onExportTrimmed={(format) => exportTrimmedMesh(sceneRef, format, units)}

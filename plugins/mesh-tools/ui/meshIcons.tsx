@@ -42,6 +42,13 @@ const ICONS = {
       <path className="i-th" d="M3.5 12h4m9 0h4" />
     </>
   ),
+  // A triangle split at the middles of its sides: four in the same plane.
+  densify: (
+    <>
+      <path className="i-g" d="M3 20 12 4l9 16Z" />
+      <path className="i-a" d="M7.5 12h9L12 20Z" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>
 
 export type MeshIconName = keyof typeof ICONS

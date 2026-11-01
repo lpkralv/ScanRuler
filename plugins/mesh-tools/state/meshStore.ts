@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Everything the Mesh Tools workspace knows. Its tools come in two kinds.
 // Some edit the scan itself — Remove islands, Delete marked, Flip normals,
-// Cut, Fill holes, Smooth, Shrink / expand, Boolean, Shell — and every
+// Cut, Fill holes, Smooth, Shrink / expand, Boolean, Shell, Densify — and every
 // workspace measures the scan as they leave it; each edit
 // is one step of the undo history, and the list of them says what has been
 // done to the file that was opened. Others make something beside the scan and
@@ -20,6 +20,7 @@ import { defaultSmoothLimit, defaultSmoothSize } from '../core/smooth'
 import type { CopyDeviationStats } from '../core/edit'
 import type { BooleanOp } from '../core/boolean'
 import { defaultWallThickness } from '../core/hollow'
+import { defaultDensifyEdge } from '../core/densify'
 import type { ThickenSide } from '../core/offset'
 import { DEFAULT_BREAK_DEPTH, type BreakReport } from '../core/breakSurface'
 import type { TrimReport } from '../core/trimToScan'
@@ -31,7 +32,7 @@ import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
 
 /** The tool in hand. */
-export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'holes' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell'
+export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'holes' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell' | 'densify'
 
 /** What the viewport shows of a reduction: the reduced mesh with its
  *  triangles drawn, the scan painted with how far the reduced mesh strays
@@ -47,7 +48,7 @@ export type CutKeep = 'plus' | 'minus'
 /** A change made to the scan, as the list of them tells it. The kinds are
  *  the names a saved project knows them by: `pieces` is Remove islands,
  *  `delete` Delete marked, `flip` Flip normals, `cut`, `fill` Fill holes,
- *  `smooth`, `offset` Shrink / expand, `boolean`, `shell`. */
+ *  `smooth`, `offset` Shrink / expand, `boolean`, `shell`, `densify`. */
 export type ScanEdit =
   | {
       kind: 'pieces'
@@ -124,6 +125,14 @@ export type ScanEdit =
       cavities?: number
       volume?: number
     }
+  | {
+      kind: 'densify'
+      /** No edge left longer than this, mm; the points and triangles the
+       *  splitting added. */
+      maxEdge: number
+      vertices: number
+      triangles: number
+    }
 
 /** Every tool's settings: what a command sets and puts back when it
  *  fails, and what an undo step keeps — a setting added to the store goes
@@ -132,7 +141,7 @@ export const MESH_SETTINGS = [
   'tolerance', 'toleranceAuto', 'maxTriangles', 'pieceSize', 'pieceSizeAuto', 'cutRef', 'cutOffset', 'cutOffsetAuto', 'cutKeep',
   'cutCap', 'holeSize', 'holeSizeAuto', 'fillMode', 'smoothScope', 'smoothSize', 'smoothSizeAuto', 'smoothLimit', 'smoothLimitAuto',
   'smoothEdges', 'offsetScope', 'offsetDirection', 'offsetDistance', 'boolOp', 'boolSolids', 'trimSolid', 'trimOffset', 'trimDepth',
-  'trimFlip', 'shellThickness', 'shellThicknessAuto', 'shellSide',
+  'trimFlip', 'shellThickness', 'shellThicknessAuto', 'shellSide', 'densifyEdge', 'densifyEdgeAuto',
 ] as const
 
 /** The triangle limit a reduction starts with: a mesh CAD takes in without
@@ -354,6 +363,11 @@ interface MeshState {
    *  at. */
   shellSurvey: ShellSurvey | null
 
+  // ---- Densify ----------------------------------------------------------------------
+  /** No edge is left longer than this, mm. */
+  densifyEdge: number
+  densifyEdgeAuto: boolean
+
   /** What has been done to the scan in use since it was opened, oldest
    *  first — edits taken into use with Use for analysis. */
   edits: ScanEdit[]
@@ -410,6 +424,7 @@ interface MeshState {
   setSmoothSize: (v: number) => void
   setSmoothLimit: (v: number) => void
   setSmoothEdges: (on: boolean) => void
+  setDensifyEdge: (v: number) => void
   setOffsetScope: (scope: SmoothScope) => void
   setOffsetDirection: (direction: OffsetDirection) => void
   setOffsetDistance: (v: number) => void
@@ -519,6 +534,9 @@ export const useMeshTools = create<MeshState>()((set) => ({
   shellThicknessAuto: true,
   shellSide: 'in',
 
+  densifyEdge: 1,
+  densifyEdgeAuto: true,
+
   boolOp: 'subtract',
   boolSolids: [],
 
@@ -603,6 +621,8 @@ export const useMeshTools = create<MeshState>()((set) => ({
 
   setSmoothEdges: (smoothEdges) => set({ smoothEdges }),
 
+  setDensifyEdge: (v) => set({ densifyEdge: Math.max(1e-3, v), densifyEdgeAuto: false }),
+
   setOffsetScope: (offsetScope) => set({ offsetScope }),
 
   setOffsetDirection: (offsetDirection) => set({ offsetDirection }),
@@ -672,6 +692,7 @@ export const useMeshTools = create<MeshState>()((set) => ({
       ...(s.smoothSizeAuto ? { smoothSize: defaultSmoothSize(bboxDiagonal, edgeLength) } : {}),
       ...(s.smoothLimitAuto ? { smoothLimit: defaultSmoothLimit(bboxDiagonal) } : {}),
       ...(s.shellThicknessAuto ? { shellThickness: defaultWallThickness(bboxDiagonal) } : {}),
+      ...(s.densifyEdgeAuto ? { densifyEdge: defaultDensifyEdge(bboxDiagonal) } : {}),
     })),
 
   clear: () =>
@@ -747,6 +768,8 @@ export function scanEditText(e: ScanEdit, units: DisplayUnits = 'mm'): string {
       return e.mode === 'hollow'
         ? `Hollowed with a ${len(e.thickness)} wall`
         : `Thickened ${len(e.thickness)} ${e.side === 'out' ? 'outward' : e.side === 'both' ? 'to both sides' : 'inward'}`
+    case 'densify':
+      return `Densified to edges of ${len(e.maxEdge)} at most`
   }
 }
 
@@ -771,5 +794,7 @@ export function scanEditFigure(e: ScanEdit, units: DisplayUnits = 'mm'): string 
       return `${e.distance > 0 ? '+' : '−'}${fmtLen(Math.abs(e.distance), units, 3)}`
     case 'shell':
       return e.mode === 'hollow' && e.volume !== undefined ? `−${fmtVol(e.volume, units, 1)}` : `+${count(e.triangles)} △`
+    case 'densify':
+      return `+${count(e.triangles)} △`
   }
 }
